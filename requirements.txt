@@ -1,0 +1,27 @@
+# --- Document Processing (Xử lý định dạng tài liệu PDF, Word) ---
+pymupdf>=1.23.0
+python-docx>=1.1.0
+
+# --- NLP & Tokenization (Xử lý ngôn ngữ tự nhiên, tách từ tiếng Việt) ---
+underthesea>=6.8.0
+pyvi>=0.1.1
+
+# --- Embeddings, Vector Search & Retrieval (Chuyển đổi vector và tìm kiếm) ---
+sentence-transformers>=2.6.0
+faiss-cpu>=1.7.4          # Thư viện lưu trữ và tìm kiếm vector cục bộ
+rank-bm25>=0.2.2          # Tìm kiếm từ khóa truyền thống (Keyword-based search)
+scikit-learn>=1.3.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# --- LLM & Deep Learning (Mô hình ngôn ngữ lớn và học sâu) ---
+torch>=2.1.0
+transformers>=4.40.0
+accelerate>=0.28.0
+bitsandbytes>=0.43.0      # Lượng tử hóa mô hình INT4 giúp tiết kiệm VRAM (phù hợp GPU 4GB)
+
+# --- App & Utilities (Giao diện Web demo và công cụ hỗ trợ) ---
+streamlit>=1.32.0
+pyyaml>=6.0
+tqdm>=4.66.0
+pytest>=8.0.0

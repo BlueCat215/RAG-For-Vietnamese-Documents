@@ -1,0 +1,49 @@
+seed: 42 # Cố định seed để đảm bảo tính tái lập kết quả thí nghiệm
+
+paths:
+  raw_dir: "data/raw" # Thư mục chứa dữ liệu thô đầu vào (PDF, Docx)
+  processed_dir: "data/processed" # Dữ liệu sau khi làm sạch và phân đoạn
+  index_dir: "data/index" # Nơi lưu trữ vector index của FAISS
+  qa_dir: "data/qa" # Thư mục chứa bộ dữ liệu câu hỏi - đáp án kiểm thử
+  results_dir: "results" # Thư mục lưu kết quả đánh giá hệ thống
+
+models:
+  # Embedding Model (Chuyển văn bản thành vector ngữ nghĩa)
+  embedding:
+    name: "BAAI/bge-m3" # Hoặc "AITeamVN/Vietnamese_Embedding"
+    dim: 1024
+    max_seq_length: 512
+    batch_size: 8
+    normalize: true
+    query_prefix: ""
+    passage_prefix: ""
+    device: "cuda" # Chạy trên GPU khi build index
+
+  # Reranker Model (Chấm điểm lại các kết quả tìm kiếm để chọn ra ngữ cảnh tốt nhất)
+  reranker:
+    name: "BAAI/bge-reranker-v2-m3"
+    top_n: 20
+    top_k: 5
+    device: "cpu" # Chạy trên CPU để nhường toàn bộ VRAM cho LLM chính
+
+  # LLM Model (Mô hình sinh câu trả lời cuối cùng)
+  llm:
+    name: "Qwen/Qwen2.5-3B-Instruct"
+    quantization: "4bit" # Dùng 4-bit bitsandbytes tối ưu cho card màn hình 4GB VRAM
+    max_new_tokens: 350
+    temperature: 0.1 # Độ sáng tạo thấp, ưu tiên tính chính xác và bám sát tài liệu
+    device: "cuda"
+
+chunking:
+  strategy: "structural" # Chiến lược cắt chunk: theo cấu trúc (Điều/Khoản pháp luật) | fixed | recursive
+  max_tokens: 512
+  overlap_ratio: 0.15 # Tỷ lệ chồng lấp ngữ cảnh giữa các chunk liên tiếp
+
+retrieval:
+  bm25:
+    k1: 1.5
+    b: 0.75
+  rrf:
+    k: 60 # Hằng số chuẩn hóa trong thuật toán kết hợp Reciprocal Rank Fusion
+  top_k: 5 # Số lượng đoạn ngữ cảnh cao nhất được đưa vào LLM
+  refusal_threshold: 0.45 # Ngưỡng từ chối (tau): Nếu điểm số top-1 < ngưỡng này -> Từ chối trả lời, không gọi LLM
