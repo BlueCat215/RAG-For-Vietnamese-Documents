@@ -1,49 +1,54 @@
-seed: 42 # Cố định seed để đảm bảo tính tái lập kết quả thí nghiệm
+# Cố định seed để kết quả chạy (RAG / Random split) không bị biến động qua các lần test
+seed: 42
 
+# Cấu hình đường dẫn lưu trữ dữ liệu của dự án
 paths:
-  raw_dir: "data/raw" # Thư mục chứa dữ liệu thô đầu vào (PDF, Docx)
-  processed_dir: "data/processed" # Dữ liệu sau khi làm sạch và phân đoạn
-  index_dir: "data/index" # Nơi lưu trữ vector index của FAISS
-  qa_dir: "data/qa" # Thư mục chứa bộ dữ liệu câu hỏi - đáp án kiểm thử
-  results_dir: "results" # Thư mục lưu kết quả đánh giá hệ thống
+  raw_dir: "data/raw" # Đầu vào: File PDF, Docx thô
+  processed_dir: "data/processed" # Đầu ra: Chunks đã làm sạch và phân đoạn
+  index_dir: "data/index" # Lưu file chỉ mục FAISS index
+  qa_dir: "data/qa" # Bộ dữ liệu test benchmark (Ground truth QA)
+  results_dir: "results" # Lưu log / metric đánh giá
 
+# Cấu hình các mô hình trong pipeline RAG
 models:
-  # Embedding Model (Chuyển văn bản thành vector ngữ nghĩa)
+  # 1. Embedding model: Chuyển văn bản thành vector ngữ nghĩa
   embedding:
-    name: "BAAI/bge-m3" # Hoặc "AITeamVN/Vietnamese_Embedding"
-    dim: 1024
-    max_seq_length: 512
-    batch_size: 8
-    normalize: true
-    query_prefix: ""
-    passage_prefix: ""
-    device: "cuda" # Chạy trên GPU khi build index
-
-  # Reranker Model (Chấm điểm lại các kết quả tìm kiếm để chọn ra ngữ cảnh tốt nhất)
-  reranker:
-    name: "BAAI/bge-reranker-v2-m3"
-    top_n: 20
-    top_k: 5
-    device: "cpu" # Chạy trên CPU để nhường toàn bộ VRAM cho LLM chính
-
-  # LLM Model (Mô hình sinh câu trả lời cuối cùng)
-  llm:
-    name: "Qwen/Qwen2.5-3B-Instruct"
-    quantization: "4bit" # Dùng 4-bit bitsandbytes tối ưu cho card màn hình 4GB VRAM
-    max_new_tokens: 350
-    temperature: 0.1 # Độ sáng tạo thấp, ưu tiên tính chính xác và bám sát tài liệu
+    name: "AITeamVN/Vietnamese_Embedding" # Model bge-m3 fine-tuned riêng cho tiếng Việt
+    dim: 1024 # Kích thước vector output
+    max_seq_length: 2048 # Độ dài tối đa mô hình nhận vào (tokens)
+    batch_size: 8 # Số đoạn văn xử lý cùng lúc
+    normalize: true # Chuẩn hóa L2 vector để dùng Cosine Similarity / Inner Product
+    query_prefix: "" # Prefix cho câu hỏi (bản này không dùng)
+    passage_prefix: "" # Prefix cho đoạn văn (bản này không dùng)
+    # CUDA dùng khi build index offline. Khi chạy chat online, dùng CPU trong code để tránh ăn VRAM.
     device: "cuda"
 
-chunking:
-  strategy: "structural" # Chiến lược cắt chunk: theo cấu trúc (Điều/Khoản pháp luật) | fixed | recursive
-  max_tokens: 512
-  overlap_ratio: 0.15 # Tỷ lệ chồng lấp ngữ cảnh giữa các chunk liên tiếp
+  # 2. Reranker model: Cross-Encoder chấm điểm và xếp hạng lại top k kết quả
+  reranker:
+    name: "thanhtantran/Vietnamese_Reranker" # Model Cross-Encoder học trên 1.1M cặp dữ liệu tiếng Việt
+    top_n_to_rerank: 20 # Lấy top 20 từ Hybrid Search (BM25 + Vector) đưa vào Rerank
+    top_k_final: 5 # Giữ lại top 5 đoạn có điểm cao nhất để nạp vào LLM
+    device: "cpu" # Ép chạy trên CPU để nhường 100% VRAM cho LLM
 
+  # 3. Generator (LLM): Mô hình sinh câu trả lời dựa trên context
+  llm:
+    name: "Qwen/Qwen2.5-3B-Instruct" # LLM 3B thông số, tối ưu tốt cho tiếng Việt
+    quantization: "4bit" # Lượng tử hóa 4-bit (bitsandbytes) để vừa GPU 4GB VRAM
+    max_new_tokens: 350 # Giới hạn số token tối đa LLM sinh ra
+    temperature: 0.1 # Nhiệt độ thấp (0.1) để giảm hallucination, bám sát context
+    device: "cuda" # Giữ cố định LLM trên GPU
+
+# Cấu hình chiến lược cắt nhỏ văn bản (Chunking)
+chunking:
+  strategy: "structural" # Cắt theo cấu trúc văn bản pháp luật (Điều / Khoản)
+  max_tokens: 512 # Kích thước tối đa của 1 chunk (nằm an toàn trong max_seq_length 2048)
+  overlap_ratio: 0.15 # Đè (gối đầu) 15% tokens giữa 2 chunk liền kề để tránh mất ngữ cảnh giáp ranh
+
+# Cấu hình tầng truy xuất thông tin (Retrieval & Filtering)
 retrieval:
   bm25:
-    k1: 1.5
-    b: 0.75
+    k1: 1.5 # Tham số kiểm soát độ bão hòa tần suất từ (Term Frequency)
+    b: 0.75 # Tham số phạt độ dài văn bản (Document Length Normalization)
   rrf:
-    k: 60 # Hằng số chuẩn hóa trong thuật toán kết hợp Reciprocal Rank Fusion
-  top_k: 5 # Số lượng đoạn ngữ cảnh cao nhất được đưa vào LLM
-  refusal_threshold: 0.45 # Ngưỡng từ chối (tau): Nếu điểm số top-1 < ngưỡng này -> Từ chối trả lời, không gọi LLM
+    k: 60 # Hằng số k trong công thức Reciprocal Rank Fusion (kết hợp BM25 + Dense)
+  refusal_threshold: 0.45 # Ngưỡng tau: Nếu score top-1 sau Rerank < 0.45 -> Từ chối trả lời (Out-of-domain)
