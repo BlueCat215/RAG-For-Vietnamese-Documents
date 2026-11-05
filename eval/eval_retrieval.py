@@ -9,7 +9,12 @@ Tính toán các chỉ số học thuật chuẩn:
 """
 
 import os
+import sys
 import math
+
+# Đảm bảo import được module 'src' khi chạy trực tiếp từ thư mục eval
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Any, Tuple
@@ -119,7 +124,8 @@ def run_evaluation(
     print(f"[*] Tổng số câu hỏi kiểm thử: {len(eval_samples)}")
 
     pipeline = RAGPipeline(config_path=config_path)
-    pipeline.initialize()
+    # Tầng đánh giá truy hồi chỉ cần BM25, Vector Index và Reranker; tắt nạp trước LLM để chạy nhanh và tiết kiệm VRAM
+    pipeline.initialize(preload_llm=False)
 
     experiments = [
         {"name": "BM25 (Baseline)", "method": "bm25", "use_rerank": False},
