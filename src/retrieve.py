@@ -15,30 +15,55 @@ import numpy as np
 # ==============================================================================
 # Tokenizer cho BM25 tiếng Việt
 # ==============================================================================
-def tokenize_vietnamese(text: str, mode: str = "syllable") -> List[str]:
+def tokenize_vietnamese(text: str, mode: str = "dual") -> List[str]:
     """
-    Tokenize cho BM25:
-    - 'syllable': Tách theo âm tiết (lowercase + split trắng). Nhanh, chuẩn cho baseline.
-    - 'word': Dùng underthesea tách từ ghép ("học sinh" -> "học_sinh").
+    Bộ tách từ tiếng Việt tối ưu cho BM25:
+    - 'syllable': Tách theo âm tiết đơn lẻ.
+    - 'word': Tách từ ghép (nối dấu gạch dưới qua Pyvi / Underthesea).
+    - 'dual': Chế độ lai kép (Dual Tokenization) kết hợp cả âm tiết đơn lẻ (unigrams)
+              lẫn từ ghép (compound words). Tăng vọt Precision cho từ vựng chuyên ngành
+              mà vẫn bảo toàn tuyệt đối Recall khi gặp khẩu ngữ biến thể của sinh viên.
     """
     text = text.lower().strip()
-    if mode == "word":
+    # 1. Tách âm tiết đơn lẻ và lọc ký tự đặc biệt
+    syllable_tokens = [w.strip(".,;:?!\"'()[]{}«»/\\-") for w in text.split()]
+    syllable_tokens = [w for w in syllable_tokens if w]
+
+    if mode == "syllable":
+        return syllable_tokens
+
+    # 2. Tách từ ghép
+    word_tokens = []
+    try:
+        from pyvi import ViTokenizer
+        segmented = ViTokenizer.tokenize(text)
+        word_tokens = [w.strip(".,;:?!\"'()[]{}«»/\\-") for w in segmented.split()]
+        word_tokens = [w for w in word_tokens if w]
+    except ImportError:
         try:
             from underthesea import word_tokenize
-            # Nối từ ghép bằng dấu gạch dưới
-            return word_tokenize(text, format="text").split()
+            segmented = word_tokenize(text, format="text")
+            word_tokens = [w.strip(".,;:?!\"'()[]{}«»/\\-") for w in segmented.split()]
+            word_tokens = [w for w in word_tokens if w]
         except ImportError:
-            pass
-    # Mặc định: tách theo âm tiết và lọc ký tự đặc biệt
-    words = [w.strip(".,;:?!\"'()[]{}«»") for w in text.split()]
-    return [w for w in words if w]
+            return syllable_tokens
+
+    if mode == "word":
+        return word_tokens
+
+    if mode == "dual":
+        # Kết hợp toàn bộ âm tiết đơn lẻ + các từ ghép (có chứa dấu gạch dưới '_')
+        compounds = [w for w in word_tokens if "_" in w]
+        return syllable_tokens + compounds
+
+    return syllable_tokens
 
 
 # ==============================================================================
 # Lớp BM25 Retriever
 # ==============================================================================
 class BM25Retriever:
-    def __init__(self, chunks: List[Dict[str, Any]], k1: float = 1.5, b: float = 0.75, mode: str = "syllable"):
+    def __init__(self, chunks: List[Dict[str, Any]], k1: float = 1.5, b: float = 0.75, mode: str = "dual"):
         self.chunks = chunks
         self.mode = mode
         self.corpus_tokens = [
@@ -60,6 +85,7 @@ class BM25Retriever:
         for rank, idx in enumerate(top_indices):
             chunk = dict(self.chunks[idx])
             chunk["score"] = float(scores[idx])
+            chunk["bm25_score"] = float(scores[idx])
             chunk["rank"] = rank + 1
             chunk["retriever"] = "bm25"
             results.append(chunk)
@@ -78,6 +104,7 @@ def reciprocal_rank_fusion(
     """
     Hợp nhất nhiều danh sách kết quả (BM25 + Dense) bằng thuật toán RRF:
     RRF_score(d) = sum(1 / (k + rank_r(d)))
+    Bảo toàn thuộc tính dense_score từ mô hình vector embedding để phục vụ Re-ranking mềm.
     """
     rrf_scores: Dict[str, float] = {}
     chunk_map: Dict[str, Dict[str, Any]] = {}
@@ -86,7 +113,19 @@ def reciprocal_rank_fusion(
         for rank, item in enumerate(results):
             c_id = item["chunk_id"]
             if c_id not in chunk_map:
-                chunk_map[c_id] = item
+                chunk_map[c_id] = dict(item)
+
+            # Bảo tồn dense_score từ Dense Search
+            if item.get("retriever") == "dense":
+                chunk_map[c_id]["dense_score"] = float(item.get("score", 0.0))
+            elif "dense_score" not in chunk_map[c_id] and "dense_score" in item:
+                chunk_map[c_id]["dense_score"] = float(item["dense_score"])
+
+            # Bảo tồn bm25_score từ BM25 Search
+            if item.get("retriever") == "bm25":
+                chunk_map[c_id]["bm25_score"] = float(item.get("score", 0.0))
+            elif "bm25_score" not in chunk_map[c_id] and "bm25_score" in item:
+                chunk_map[c_id]["bm25_score"] = float(item["bm25_score"])
 
             # rank trong Python bắt đầu từ 0 -> thứ hạng thật là rank + 1
             rrf_scores[c_id] = rrf_scores.get(c_id, 0.0) + (1.0 / (k + (rank + 1)))

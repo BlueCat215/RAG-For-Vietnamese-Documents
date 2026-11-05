@@ -3,6 +3,18 @@ Script chạy thử nghiệm hỏi đáp dòng lệnh (CLI Interactive Test)
 Dùng để kiểm tra nhanh RAG Pipeline sau khi đã build index xong.
 """
 
+import sys
+import io
+
+# Đảm bảo UTF-8 toàn diện trên môi trường Windows
+if sys.platform == "win32":
+    try:
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
 from src.pipeline import RAGPipeline
 
 
@@ -28,6 +40,11 @@ def main():
             query = input("\n👤 Sinh viên hỏi: ").strip()
             if not query:
                 continue
+            
+            # Nếu chạy từ pipe stdin (không phải TTY), hiển thị câu hỏi ra console/log
+            if not sys.stdin.isatty():
+                print(query)
+
             if query.lower() in ["q", "exit", "quit"]:
                 print("Tạm biệt!")
                 break
@@ -52,7 +69,7 @@ def main():
 
             print("-" * 60)
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, EOFError):
             print("\nĐã thoát.")
             break
         except Exception as e:

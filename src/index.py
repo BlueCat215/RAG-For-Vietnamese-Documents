@@ -83,12 +83,13 @@ class VectorIndex:
 
     def search(self, query: str, model: SentenceTransformer, top_k: int = 5) -> List[Dict[str, Any]]:
         """
-        Tìm kiếm ngữ nghĩa (Dense search).
-        Lưu ý: Lúc truy vấn online, model SentenceTransformer nên chạy trên CPU để nhường GPU cho LLM.
+        Tìm kiếm ngữ nghĩa (Dense search) bằng vector embedding đa chiều của AITeamVN/Vietnamese_Embedding.
+        Lưu ý: Lúc truy vấn online, model SentenceTransformer chạy trên CPU để nhường trọn vẹn GPU cho LLM.
         """
         if self.index is None:
             raise ValueError("Index chưa được nạp hoặc khởi tạo!")
 
+        # Chuẩn hóa L2 vector để bảo toàn quan hệ góc Cosine Similarity đa chiều
         q_vec = model.encode([query], normalize_embeddings=True, convert_to_numpy=True)
         scores, indices = self.index.search(q_vec.astype(np.float32), top_k)
 
@@ -98,6 +99,7 @@ class VectorIndex:
                 continue
             chunk = dict(self.chunks[idx])
             chunk["score"] = float(score)
+            chunk["dense_score"] = float(score)
             chunk["rank"] = rank + 1
             chunk["retriever"] = "dense"
             results.append(chunk)

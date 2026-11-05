@@ -26,7 +26,7 @@ models:
   # 2. Reranker model: Cross-Encoder chấm điểm và xếp hạng lại top k kết quả
   reranker:
     name: "thanhtantran/Vietnamese_Reranker" # Model Cross-Encoder học trên 1.1M cặp dữ liệu tiếng Việt
-    top_n_to_rerank: 20 # Lấy top 20 từ Hybrid Search (BM25 + Vector) đưa vào Rerank
+    top_n_to_rerank: 10 # Lấy top 10 từ Hybrid Search (BM25 + Vector) đưa vào Rerank (tối ưu tốc độ)
     top_k_final: 5 # Giữ lại top 5 đoạn có điểm cao nhất để nạp vào LLM
     device: "cpu" # Ép chạy trên CPU để nhường 100% VRAM cho LLM
 
@@ -49,6 +49,7 @@ retrieval:
   bm25:
     k1: 1.5 # Tham số kiểm soát độ bão hòa tần suất từ (Term Frequency)
     b: 0.75 # Tham số phạt độ dài văn bản (Document Length Normalization)
+    mode: "dual" # Chế độ tách từ cho BM25: 'dual' (lai ghép âm tiết + từ ghép tiếng Việt)
   rrf:
     k: 60 # Hằng số k trong công thức Reciprocal Rank Fusion (kết hợp BM25 + Dense)
-  refusal_threshold: 0.45 # Ngưỡng tau: Nếu score top-1 sau Rerank < 0.45 -> Từ chối trả lời (Out-of-domain)
+  refusal_threshold: 0.05 # Ngưỡng tau: Nếu score top-1 sau Rerank < 0.05 -> Từ chối trả lời (Out-of-domain)
