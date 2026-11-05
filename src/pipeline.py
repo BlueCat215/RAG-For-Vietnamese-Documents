@@ -62,7 +62,7 @@ class RAGPipeline:
             model_name=llm_cfg["name"],
             quantization=llm_cfg.get("quantization", "4bit"),
             device=llm_cfg.get("device", "cuda"),
-            max_new_tokens=llm_cfg.get("max_new_tokens", 350),
+            max_new_tokens=llm_cfg.get("max_new_tokens", 600),
             temperature=llm_cfg.get("temperature", 0.1)
         )
 

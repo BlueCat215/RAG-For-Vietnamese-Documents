@@ -10,6 +10,7 @@ Tối ưu hóa:
 3. Hậu xử lý chuẩn xác (Post-processing):
    - Tự động cắt lọc các dòng sinh thừa máy móc (như tự in thêm 'Tôi không tìm thấy thông tin...') ở cuối câu trả lời nếu đã trả lời đủ ý.
    - Kiểm tra mã trích dẫn [n], bắt lỗi mã trích dẫn bịa.
+   - Cắt tỉa các dòng gạch đầu dòng dang dở do chạm trần token.
 """
 
 import re
@@ -40,7 +41,12 @@ def clean_llm_response(raw_text: str) -> str:
     Làm sạch phản hồi của LLM:
     - Loại bỏ các dòng meta tự sinh như: [Mô tả từ tài liệu], [Mã nguồn trích dẫn: [1], [2]]
     - Loại bỏ câu từ chối máy móc bị dính ở cuối đoạn nếu phía trên đã trả lời chi tiết.
+    - Cắt bỏ các dòng dang dở do chạm trần token (dangling incomplete bullet).
     """
+    # Loại bỏ các khối meta có thể trải dài nhiều dòng
+    raw_text = re.sub(r"\[Mã nguồn trích dẫn:[\s\S]*?\]", "", raw_text, flags=re.IGNORECASE)
+    raw_text = re.sub(r"\[Tài liệu tham khảo:?[\s\S]*?\]", "", raw_text, flags=re.IGNORECASE)
+
     lines = raw_text.split("\n")
     cleaned_lines = []
     
@@ -68,6 +74,16 @@ def clean_llm_response(raw_text: str) -> str:
             res_lines.pop()
             result = "\n".join(res_lines).strip()
 
+    # Cắt bỏ dòng cuối nếu bị cụt chữ do chạm trần token (ví dụ: "- Điểm")
+    if res_lines:
+        last = res_lines[-1].strip()
+        if (last.startswith(("-", "*", "•")) or last.endswith((": ", ":", "và", "hoặc", "nếu"))) and not last.endswith((".", "!", "?", ";", "...")):
+            if len(last.split()) <= 4:
+                res_lines.pop()
+                if res_lines and res_lines[-1].strip().endswith(":"):
+                    res_lines.pop()
+                result = "\n".join(res_lines).strip()
+
     return result
 
 
@@ -77,7 +93,7 @@ class VietnameseLLMGenerator:
         model_name: str = "Qwen/Qwen2.5-3B-Instruct",
         quantization: str = "4bit",
         device: str = "cuda",
-        max_new_tokens: int = 350,
+        max_new_tokens: int = 600,
         temperature: float = 0.1,
     ):
         self.model_name = model_name
@@ -124,7 +140,7 @@ class VietnameseLLMGenerator:
                 )
                 print("[+] Đã nạp LLM thành công với BitsAndBytes 4-bit NF4!")
             except Exception as e:
-                print(f"[!] Lỗi nạp BitsAndBytes 4-bit ({e}). Fallback sang float16...")
+                print(f"[!] Không thể nạp BitsAndBytes 4-bit ({e}). Fallback sang float16...")
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_name,
                     device_map="auto",
@@ -145,6 +161,7 @@ class VietnameseLLMGenerator:
     def build_prompt(self, query: str, context_chunks: List[Dict[str, Any]]) -> str:
         """
         Xây dựng prompt theo format Chat Template chuẩn của Qwen2.5.
+        Đánh số [1], [2]... cho từng đoạn context kèm metadata rõ ràng.
         """
         context_parts = []
         for i, chunk in enumerate(context_chunks):
@@ -190,6 +207,9 @@ Hãy đọc hiểu các đoạn tài liệu trên và trả lời câu hỏi c�
     def parse_citations(self, answer_text: str, num_contexts: int) -> Tuple[List[int], List[int]]:
         """
         Tìm tất cả các mã trích dẫn [n] trong câu trả lời.
+        Phân loại:
+        - valid_citations: n nằm trong phạm vi 1 đến num_contexts.
+        - hallucinated_citations: n vượt quá phạm vi context được cung cấp.
         """
         matches = re.findall(r"\[(\d+)\]", answer_text)
         valid = set()
@@ -259,9 +279,9 @@ Hãy đọc hiểu các đoạn tài liệu trên và trả lời câu hỏi c�
             "tài liệu không đề cập",
             "tài liệu không cung cấp"
         ]
-        is_refused = len(final_answer) < 120 and any(p in final_answer.lower() for p in refusal_phrases)
+        is_refused = any(p in final_answer.lower() for p in refusal_phrases) and len(final_answer) < 150
 
-        # Trích xuất mã trích dẫn
+        # Trích xuất và kiểm tra mã trích dẫn
         valid_cites, fake_cites = self.parse_citations(final_answer, len(context_chunks))
 
         return {
