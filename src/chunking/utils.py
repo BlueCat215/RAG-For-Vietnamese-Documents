@@ -1,5 +1,9 @@
 """
-Các hàm tiện ích và tiền xử lý văn bản dùng cho module Chunking.
+Các hàm tiện ích nền tảng cho việc phân đoạn văn bản pháp quy:
+- Chuẩn hóa văn bản pháp luật, Unicode NFC, sửa lỗi font PDF (Ð -> Đ).
+- Định danh chunk (hash) & ước lượng token tiếng Việt.
+- Tra cứu số trang O(log N) bằng bisect.
+- Lọc bỏ header/footer lặp trang và ghép văn bản hoàn chỉnh.
 """
 
 import re
@@ -11,12 +15,7 @@ from typing import List, Dict, Any, Tuple, Optional
 
 
 def normalize_legal_text(text: Optional[str]) -> str:
-    """
-    Chuẩn hóa văn bản pháp luật tiếng Việt từ PDF:
-    - Unicode NFC.
-    - 'Ð' (U+00D0) -> 'Đ', 'ð' -> 'đ' (lỗi font hay gặp).
-    - Chuẩn hóa xuống dòng và khoảng trắng không ngắt (\\xa0).
-    """
+    """Chuẩn hóa NFC, sửa lỗi font 'Ð'/'ð' từ PDF, chuẩn hóa xuống dòng."""
     if not text:
         return ""
     text = unicodedata.normalize("NFC", text)
@@ -26,24 +25,24 @@ def normalize_legal_text(text: Optional[str]) -> str:
 
 
 def hash_text(text: str) -> str:
-    """Mã băm ngắn định danh chunk (không dùng cho bảo mật)."""
+    """Mã băm ngắn định danh chunk."""
     return hashlib.md5(text.encode("utf-8")).hexdigest()[:10]
 
 
 def estimate_token_count(text: str) -> int:
-    """Ước lượng số token cho tiếng Việt (khoảng 1.3 token / âm tiết)."""
+    """Ước lượng số token cho tiếng Việt (~1.3 token / âm tiết)."""
     return int(len(text.strip().split()) * 1.3)
 
 
 def get_page_number(char_pos: int, page_starts: List[int], pages: List[int]) -> int:
-    """Tìm số trang theo vị trí ký tự bằng bisect, O(log N)."""
+    """Tìm số trang theo vị trí ký tự bằng bisect O(log N)."""
     idx = bisect.bisect_right(page_starts, char_pos) - 1
     idx = max(0, min(idx, len(pages) - 1))
     return pages[idx]
 
 
 def trim_span(src: str, s: int, e: int) -> Tuple[int, int]:
-    """Bỏ khoảng trắng hai đầu nhưng vẫn giữ offset tuyệt đối trong src."""
+    """Bỏ khoảng trắng hai đầu nhưng vẫn giữ offset tuyệt đối."""
     while s < e and src[s].isspace():
         s += 1
     while e > s and src[e - 1].isspace():
@@ -81,10 +80,7 @@ _STRUCT_LINE_RE = re.compile(r"^(?:Điều|Chương|Mục)\b")
 
 def clean_page_texts(doc_pages: List[Dict[str, Any]], min_pages: int = 4,
                      ratio: float = 0.6, max_len: int = 100) -> List[str]:
-    """
-    Chuẩn hóa và loại bỏ header/footer lặp lại ở >= ratio số trang
-    cùng các dòng chỉ chứa số trang ("Trang 3", "3/12").
-    """
+    """Loại bỏ header/footer lặp lại ở >= ratio số trang và số trang đơn thuần."""
     texts = [normalize_legal_text(p.get("text")) for p in doc_pages]
     repeated = set()
     if len(texts) >= min_pages:
@@ -110,7 +106,7 @@ def clean_page_texts(doc_pages: List[Dict[str, Any]], min_pages: int = 4,
 
 
 def build_doc_text(doc_pages: List[Dict[str, Any]], clean: bool = True) -> Tuple[str, List[int], List[int]]:
-    """Ghép các trang của MỘT tài liệu thành một chuỗi, kèm offset bắt đầu của từng trang."""
+    """Ghép các trang thành một chuỗi liên tục kèm mảng offset trang."""
     doc_pages = sorted(doc_pages, key=lambda x: x["page"])
     texts = clean_page_texts(doc_pages) if clean else [normalize_legal_text(p.get("text")) for p in doc_pages]
 
