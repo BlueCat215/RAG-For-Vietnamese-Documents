@@ -74,18 +74,47 @@ if "messages" not in st.session_state:
         {"role": "assistant", "content": "Xin chào! Bạn cần tra cứu thông tin gì về quy chế đào tạo, đăng ký học phần, tính điểm rèn luyện hay điều kiện miễn giảm học phí?"}
     ]
 
+
+def display_sources(sources: list, expanded: bool = True):
+    """Hiển thị chi tiết căn cứ và đoạn văn bản nguyên văn RAG đã truy hồi để đối chiếu."""
+    if not sources:
+        return
+    with st.expander("📚 Căn cứ trích dẫn & Đoạn văn bản gốc từ tài liệu (Bằng chứng RAG)", expanded=expanded):
+        for s in sources:
+            cid = s.get("citation_id", "?")
+            doc = s.get("doc_id", "Tài liệu")
+            heading = s.get("heading", "")
+            clause = s.get("clause", "")
+            p_start = s.get("page_start", 1)
+            p_end = s.get("page_end", p_start)
+            page_str = f"Trang {p_start}" if p_start == p_end else f"Trang {p_start} - {p_end}"
+            score = s.get("score")
+            score_str = f" • Điểm phù hợp Rerank: `{score:.3f}`" if score is not None else ""
+
+            st.markdown(f"#### `[{cid}]` {doc}")
+            sub_headers = []
+            if clause:
+                sub_headers.append(f"**{clause}**")
+            if heading:
+                sub_headers.append(f"*{heading}*")
+            if sub_headers:
+                st.markdown(" ➔ ".join(sub_headers))
+
+            st.caption(f"📍 {page_str}{score_str}")
+
+            # Đoạn văn bản gốc từ tài liệu (nguyên văn RAG chunk)
+            chunk_text = s.get("text") or s.get("snippet", "")
+            with st.container(border=True):
+                st.markdown(f"**Nội dung văn bản được hệ thống truy hồi đối chiếu:**\n\n{chunk_text}")
+            st.divider()
+
+
 # Hiển thị các tin nhắn cũ
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if "sources" in msg and msg["sources"]:
-            with st.expander("📚 Xem nguồn trích dẫn & căn cứ pháp lý"):
-                for s in msg["sources"]:
-                    st.markdown(f"**[{s['citation_id']}] {s['doc_id']}** - *{s['heading']}*")
-                    if s.get("clause"):
-                        st.markdown(f"📌 **{s['clause']}**")
-                    st.caption(f"Trang: {s['page_start']} - Điểm phù hợp: {s['score']:.3f}")
-                    st.code(s["snippet"], language="text")
+            display_sources(msg["sources"], expanded=False)
 
 # Ô nhập câu hỏi của người dùng
 if prompt := st.chat_input("Nhập câu hỏi của bạn (ví dụ: điều kiện tốt nghiệp, thủ tục học lại, miễn giảm học phí...):"):
@@ -117,15 +146,9 @@ if prompt := st.chat_input("Nhập câu hỏi của bạn (ví dụ: điều ki�
                 f"LLM: {lat.get('generate_ms', 0):.0f}ms)"
             )
 
-            # Hiển thị nguồn trích dẫn
+            # Hiển thị nguồn trích dẫn & văn bản gốc
             if sources:
-                with st.expander("📚 Xem nguồn trích dẫn & căn cứ pháp lý"):
-                    for s in sources:
-                        st.markdown(f"**[{s['citation_id']}] {s['doc_id']}** - *{s['heading']}*")
-                        if s.get("clause"):
-                            st.markdown(f"📌 **{s['clause']}**")
-                        st.caption(f"Trang: {s['page_start']} - Điểm phù hợp: {s['score']:.3f}")
-                        st.code(s["snippet"], language="text")
+                display_sources(sources, expanded=True)
 
             # Lưu lại vào lịch sử
             st.session_state.messages.append({

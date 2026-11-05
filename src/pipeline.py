@@ -199,20 +199,39 @@ class RAGPipeline:
         timings["generate_ms"] = (time.time() - t2) * 1000
         timings["total_ms"] = sum(timings.values())
 
-        # Bước 4: Ánh xạ mã trích dẫn [n] sang thông tin nguồn chi tiết
+        # Bước 4: Ánh xạ mã trích dẫn sang thông tin nguồn chi tiết (Bằng chứng RAG)
         sources = []
-        for cite_idx in gen_res["citations"]:
-            if 1 <= cite_idx <= len(contexts):
-                c = contexts[cite_idx - 1]
+        cited_indices = set(gen_res.get("citations", []))
+        
+        if cited_indices:
+            for cite_idx in sorted(list(cited_indices)):
+                if 1 <= cite_idx <= len(contexts):
+                    c = contexts[cite_idx - 1]
+                    sources.append({
+                        "citation_id": cite_idx,
+                        "doc_id": c.get("doc_id"),
+                        "page_start": c.get("page_start"),
+                        "page_end": c.get("page_end"),
+                        "heading": c.get("heading"),
+                        "clause": c.get("clause"),
+                        "score": c.get("rerank_score", c.get("score")),
+                        "text": c.get("text", ""),
+                        "snippet": c.get("text", "")[:250] + "..."
+                    })
+        else:
+            # Fallback: Nếu LLM diễn đạt theo tên Điều thay vì gắn mã [n],
+            # vẫn cung cấp đầy đủ các đoạn ngữ cảnh Top-K để người dùng đối chiếu căn cứ
+            for idx, c in enumerate(contexts, 1):
                 sources.append({
-                    "citation_id": cite_idx,
+                    "citation_id": idx,
                     "doc_id": c.get("doc_id"),
                     "page_start": c.get("page_start"),
                     "page_end": c.get("page_end"),
                     "heading": c.get("heading"),
                     "clause": c.get("clause"),
                     "score": c.get("rerank_score", c.get("score")),
-                    "snippet": c.get("text")[:200] + "..."
+                    "text": c.get("text", ""),
+                    "snippet": c.get("text", "")[:250] + "..."
                 })
 
         return {
